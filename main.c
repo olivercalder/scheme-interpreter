@@ -6,6 +6,7 @@
 #include <assert.h>
 #include "linkedlist.h"
 #include "value.h"
+#include "talloc.h"
 
 void testForward(Value *head, int correctLength, bool exemplary) {
   Value *value = head;
@@ -112,77 +113,58 @@ int main(int argc, char **argv) {
 
   Value *head = makeNull();
   int correctLength = 0;
-  assert(length(head) == correctLength);
 
-  Value *reverseLengthZero = reverse(head);
-  assert(length(reverseLengthZero) == correctLength);
-  cleanup(reverseLengthZero);
-
-  Value *val1 = malloc(sizeof(Value));
+  Value *val1 = talloc(sizeof(Value));
   val1->type = INT_TYPE;
   val1->i = 7;
   head = cons(val1,head);
   correctLength++;
-  assert(length(head) == correctLength);
 
-  Value *reverseLengthOne = reverse(head);
-  assert(length(reverseLengthOne) == correctLength);
-  cleanup(reverseLengthOne);
-
-  Value *val2 = malloc(sizeof(Value));
+  Value *val2 = talloc(sizeof(Value));
   val2->type = DOUBLE_TYPE;
   val2->d = 6.00;
   head = cons(val2,head);
   correctLength++;
-  assert(length(head) == correctLength);
 
   if (exemplary) {
-    Value *val3 = malloc(sizeof(Value));
+    Value *val3 = talloc(sizeof(Value));
     val3->type = STR_TYPE;
     char *text = "5.0s";
-    val3->s = malloc(sizeof(char)*(strlen(text) + 1));
+    val3->s = talloc(sizeof(char)*(strlen(text) + 1));
     strcpy(val3->s,text);
     head = cons(val3,head);
     correctLength++;
-    assert(length(head) == correctLength);
-
   }
 
-  Value *val4 = malloc(sizeof(Value));
+  Value *val4 = talloc(sizeof(Value));
   val4->type = DOUBLE_TYPE;
   val4->d = 4.00000;
   head = cons(val4,head);
   correctLength++;
-  assert(length(head) == correctLength);
 
   if (exemplary) {
-    Value *val5 = malloc(sizeof(Value));
+    Value *val5 = talloc(sizeof(Value));
     val5->type = STR_TYPE;
     char *text = "3.0s";
-    val5->s = malloc(sizeof(char)*(strlen(text) + 1));
+    val5->s = talloc(sizeof(char)*(strlen(text) + 1));
     strcpy(val5->s,text);
     head = cons(val5,head);
     correctLength++;
-    assert(length(head) == correctLength);
 
-    Value *val6 = malloc(sizeof(Value));
+    Value *val6 = talloc(sizeof(Value));
     val6->type = STR_TYPE;
     text = "2.0s";
-    val6->s = malloc(sizeof(char)*(strlen(text) + 1));
+    val6->s = talloc(sizeof(char)*(strlen(text) + 1));
     strcpy(val6->s,text);
     head = cons(val6,head);
     correctLength++;
-    assert(length(head) == correctLength);
-
   }
 
-  Value *val7 = malloc(sizeof(Value));
+  Value *val7 = talloc(sizeof(Value));
   val7->type = DOUBLE_TYPE;
   val7->d = 1.0;
   head = cons(val7,head);
   correctLength++;
-  assert(length(head) == correctLength);
-
     
   display(head);
   testForward(head, correctLength, exemplary);
@@ -192,9 +174,22 @@ int main(int argc, char **argv) {
 
   testBackward(rev, correctLength, exemplary);
 
-  cleanup(head);
-  cleanup(rev);
+  if (exemplary) {
+    printf(" -=- EMPTY LIST -=- \n");
+    Value *emptyList = makeNull();
+    assert(0 == length(emptyList));
+    assert(isNull(emptyList));
 
-  head = NULL;
-  rev = NULL;
+    printf(" -=- REVERSE EMPTY LIST -=- \n");
+    Value *reverseEmpty = reverse(emptyList);
+    assert(0 == length(reverseEmpty));
+    assert(isNull(reverseEmpty));
+
+    Value *justOneByte = talloc(1);
+}
+
+  tfree();
+
+  Value *justOneByte = talloc(1);
+  texit(0);
 }

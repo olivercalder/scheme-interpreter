@@ -1,8 +1,8 @@
 CC = cc
 CFLAGS = -g -O3
 
-SRCS = linkedlist.c main.c
-HDRS = linkedlist.h value.h
+SRCS = linkedlist.c main.c talloc.c
+HDRS = linkedlist.h value.h talloc.h
 OBJS = $(SRCS:.c=.o)
 
 .PHONY: linkedlist

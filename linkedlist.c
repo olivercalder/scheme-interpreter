@@ -1,44 +1,20 @@
-#include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 #include <assert.h>
 #include <stdarg.h>
 #include "linkedlist.h"
-
-
-// Duplicate the given Value in its entirety.  If the value is a list, create
-// a complete duplicate of the list
-Value *duplicate(Value *val) {
-    Value *new = malloc(sizeof(Value));
-    assert(new != NULL);
-    *new = *val;
-    switch (val->type) {
-        case STR_TYPE:
-            new->s = malloc(sizeof(val->s));
-            strcpy(new->s, val->s);
-            break;
-        case CONS_TYPE:
-            new->c.car = duplicate(val->c.car);
-            new->c.cdr = duplicate(val->c.cdr);
-            break;
-        default:
-            ;
-    }
-    return new;
-}
+#include "talloc.h"
 
 // Create a new NULL_TYPE value node.
 Value *makeNull() {
-    Value *new = malloc(sizeof(Value));
-    assert(new != NULL);
+    Value *new = talloc(sizeof(Value));
     new->type = NULL_TYPE;
     return new;
 }
 
 // Create a new CONS_TYPE value node.
 Value *cons(Value *newCar, Value *newCdr) {
-    Value *new = malloc(sizeof(Value));
-    assert(new != NULL);
+    Value *new = talloc(sizeof(Value));
     new->type = CONS_TYPE;
     new->c.car = newCar;
     new->c.cdr = newCdr;
@@ -75,6 +51,9 @@ void displayHelper(Value *list, int first) {
             break;
         case NULL_TYPE:
             printf("\b) ");
+            break;
+        case PTR_TYPE:
+            printf("%p ", list->p);
     }
 }
 
@@ -85,62 +64,24 @@ void display(Value *list) {
     printf("\b\n");
 }
 
-// Return a new list that is the reverse of the one that is passed in. All
-// content within the list should be duplicated; there should be no shared
-// memory whatsoever between the original list and the new one.
-//
-// FAQ: What if there are nested lists inside that list?
-// ANS: There won't be for this assignment. There will be later, but that will
-// be after we've got an easier way of managing memory.
+// Return a new list that is the reverse of the one that is passed in. No stored
+// data within the linked list should be duplicated; rather, a new linked list
+// of CONS_TYPE nodes should be created, that point to items in the original
+// list.
 Value *reverse(Value *list) {
     Value *newh;
     Value *new = makeNull();
     assert(list != NULL);
-    assert(new != NULL);
     while (list->type == CONS_TYPE) {
-        newh = malloc(sizeof(Value));
-        assert(newh != NULL);
+        newh = talloc(sizeof(Value));
         newh->type = CONS_TYPE;
-        newh->c.car = duplicate(list->c.car);
+        newh->c.car = list->c.car;
         newh->c.cdr = new;
         list = list->c.cdr;
         assert(list != NULL);
         new = newh;
     }
     return new;
-}
-
-// Frees up all memory directly or indirectly referred to by list. This includes strings.
-//
-// FAQ: What if a string being pointed to is a string literal? That throws an
-// error when freeing.
-//
-// ANS: Don't put a string literal into the list in the first place. All strings
-// added to this list should be able to be freed by the cleanup function.
-//
-// FAQ: What if there are nested lists inside that list?
-//
-// ANS: There won't be for this assignment. There will be later, but that will
-// be after we've got an easier way of managing memory.
-void cleanup(Value *list) {
-    Value *tmp;
-    assert(list != NULL);
-    switch(list->type) {
-        case CONS_TYPE:
-            while (list->type != NULL_TYPE) {
-                cleanup(car(list));
-                tmp = cdr(list);
-                free(list);
-                list = tmp; // cdr() cannot return NULL, so list is not NULL
-            }
-            free(list); // should be NULL_TYPE
-            break;
-        case STR_TYPE:
-            assert(list->s != NULL);
-            free(list->s);
-        default:
-            free(list);
-    }
 }
 
 // Utility to make it less typing to get car value. Use assertions to make sure
@@ -182,25 +123,50 @@ int length(Value *value) {
     return len;
 }
 
+// Duplicates a list by creating new cons cells for each entry, but preserving
+// the original car values.  Does not duplicate the final NULL_TYPE list.
+// Returns a pointer to the head of the new list.  If the cdr of the head is
+// NULL_TYPE, then updates the value at tail to be the address of head, which
+// is the last non-NULL_TYPE cons cell in the list.
+Value *duplicateList(Value *list, Value **tail) {
+    Value *new;
+    assert(list != NULL);
+    new->type = CONS_TYPE;
+    switch (list->type) {
+        case CONS_TYPE:
+            new = talloc(sizeof(Value));
+            new->c.car = list->c.car;
+            new->c.cdr = duplicateList(list->c.cdr, tail);
+            if (new->c.cdr->type == NULL_TYPE)
+                *tail = list;
+            break;
+        case NULL_TYPE:
+            return list;
+        default:
+            assert(list->type == CONS_TYPE || list->type == NULL_TYPE);
+    }
+    return new;
+}
+
 // Takes an integer indicating the total number of lists given as arguments.
 // Creates a copy of the first list and appends a copy of each following list
-// to the end of the previous list.
+// to the end of the previous list.  Creates new cons cells, but not new values.
 Value *append(int num, ...) {
     int i;
     va_list lists;
-    Value *list = NULL, *tail, *new;
+    Value *list = NULL, *tail = NULL, *new, *new_tail;
     va_start(lists, num);
     for (i = 0; i < num; i++) {
         new = va_arg(lists, Value*);
         assert(new != NULL);
         switch (new->type) {
             case CONS_TYPE:
-                new = duplicate(new);   // duplicate cannot return NULL
-                while (cdr(tail)->type == CONS_TYPE)    // cdr(tail) cannot be NULL
-                    tail = tail->c.cdr; // no need for cdr() assertions here
-                assert(cdr(tail)->type == NULL_TYPE);
-                cleanup(tail->c.cdr);   // no need for cdr() assertions here
-                tail->c.cdr = new;
+                new = duplicateList(new, &new_tail);    // duplicateList cannot return NULL
+                if (tail == NULL)
+                    list = new;
+                else
+                    tail->c.cdr = new;
+                tail = new_tail;
             case NULL_TYPE:
                 break;
             default:
@@ -209,12 +175,13 @@ Value *append(int num, ...) {
     }
     va_end(lists);
     if (list == NULL) {
-        return makeNull();
+        list = makeNull();
     }
     return list;
 }
+
 // Takes an integer indicating the total number of values given as arguments.
-// Creates a linked list via cons cells of a copy of every given value.
+// Creates a linked list via cons cells pointing to each original value.
 Value *list(int num, ...) {
     int i;
     va_list values;
@@ -222,12 +189,12 @@ Value *list(int num, ...) {
     if (num == 0)
         return makeNull();
     va_start(values, num);
-    new = duplicate(va_arg(values, Value*));    // duplicate cannot return NULL
-    list = cons(new, NULL);     // cons cannot return NULL
+    new = va_arg(values, Value*);
+    list = cons(new, NULL); // cons cannot return NULL
     tail = list;
     for (i = 1; i < num; i++) {
-        new = duplicate(va_arg(values, Value*));    // cannot be NULL
-        tail->c.cdr = cons(new, NULL);
+        new = va_arg(values, Value*);
+        tail->c.cdr = cons(new, NULL);  // cannot be NULL
         tail = tail->c.cdr;
     }
     tail->c.cdr = makeNull();
