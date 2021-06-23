@@ -12,6 +12,21 @@ Value *makeNull() {
     return new;
 }
 
+/* Create a new VOID_TYPE value node. */
+Value *makeVoid() {
+    Value *new = talloc(sizeof(Value));
+    new->type = VOID_TYPE;
+    return new;
+}
+
+/* Create a new BOOL_TYPE value node. */
+Value *makeBool(int boolean) {
+    Value *new = talloc(sizeof(Value));
+    new->type = BOOL_TYPE;
+    new->i = boolean;
+    return new;
+}
+
 /* Create a new CONS_TYPE value node. */
 Value *cons(Value *newCar, Value *newCdr) {
     Value *new = talloc(sizeof(Value));
@@ -25,7 +40,8 @@ struct format_info {
     int first_in_list, leading_space, is_list;
 };
 
-/* Print values in a cons list. */
+/* Print values in a cons list.  Returns 1 if next displayed value should have
+ * a leading space (excluding NULL_TYPE).  Otherwise returns 0.  */
 int displayHelper(Value *list, struct format_info *info, FILE *fd) {
     struct format_info car_info, cdr_info;
     if (info->leading_space && list->type != NULL_TYPE)
@@ -57,7 +73,9 @@ int displayHelper(Value *list, struct format_info *info, FILE *fd) {
             fprintf(fd, "%lf", list->d);
             return 1;
         case STR_TYPE:
+            fprintf(fd, "\"");
             fprintf(fd, "%s", list->s);
+            fprintf(fd, "\"");
             return 1;
         case CONS_TYPE:
             car_info.first_in_list = 1;
@@ -88,6 +106,9 @@ int displayHelper(Value *list, struct format_info *info, FILE *fd) {
         case SINGLEQUOTE_TYPE:
             fprintf(fd, "'");
             return 0;
+        case VOID_TYPE:
+            fprintf(fd, "#<void>");
+            return 1;
         default:
             fprintf(stderr, "WARNING: Value type %d should not be printable\n", list->type);
     }
@@ -96,7 +117,7 @@ int displayHelper(Value *list, struct format_info *info, FILE *fd) {
 
 /* Display the contents of the linked list to the given file descriptor in some
  * kind of readable format. */
-void display_file_descriptor(Value *list, FILE *fd) {
+void display_to_fd(Value *list, FILE *fd) {
     struct format_info info = {1, 0, 0};
     displayHelper(list, &info, fd);
     fprintf(fd, "\n");
@@ -105,7 +126,7 @@ void display_file_descriptor(Value *list, FILE *fd) {
 /* Display the contents of the linked list to the screen in some kind of
  * readable format. */
 void display(Value *list) {
-    display_file_descriptor(list, stdout);
+    display_to_fd(list, stdout);
 }
 
 /* Return a new list that is the reverse of the one that is passed in. No stored
@@ -128,7 +149,7 @@ Value *reverse(Value *list) {
     }
     if (current->type != NULL_TYPE) {
         fprintf(stderr, "ERROR: In procedure reverse: Wrong type argument: ");
-        display_file_descriptor(list, stderr);
+        display_to_fd(list, stderr);
         texit(1);
     }
     return new;
@@ -172,7 +193,7 @@ int length(Value *value) {
     }
     if (current->type != NULL_TYPE) {
         fprintf(stderr, "ERROR: In procedure length: Wrong type argument: ");
-        display_file_descriptor(value, stderr);
+        display_to_fd(value, stderr);
         texit(1);
     }
     return len;

@@ -7,12 +7,18 @@
 /* Create a new NULL_TYPE value node. */
 Value *makeNull();
 
+/* Creates a new VOID_TYPE value node. */
+Value *makeVoid();
+
+/* Create a new BOOL_TYPE value node with the given boolean value. */
+Value *makeBool(int boolean);
+
 /* Create a new CONS_TYPE value node. */
 Value *cons(Value *newCar, Value *newCdr);
 
 /* Display the contents of the linked list to the given file descriptor in some
  * kind of readable format. */
-void display_file_descriptor(Value *list, FILE *fd);
+void display_to_fd(Value *list, FILE *fd);
 
 /* Display the contents of the linked list to the screen in some kind of
  * readable format. */

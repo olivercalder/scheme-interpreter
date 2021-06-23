@@ -23,7 +23,7 @@ Value *handle_singlequotes(Value *tree) {
                     next->c.car = handle_singlequotes(car(next));
                 if (cdr(next)->type != NULL_TYPE) {
                     fprintf(stderr, "Syntax error: failed to parse DOT_TYPE: missing close paren: ");
-                    display_file_descriptor(tree, stderr);
+                    display_to_fd(tree, stderr);
                     texit(3);
                 }
                 prev->c.cdr = car(next);

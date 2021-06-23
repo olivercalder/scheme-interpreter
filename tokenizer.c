@@ -110,9 +110,9 @@ int char_valid_in_symbol(char c, int initial) {
     //
     // <symbol>     --> <initial> <subsequent>*
     // <initial>    --> <letter> | ! | $ | % | & | * | / | : | < | = | > | ? | ~ | _ | ^
-	//              |   <Unicode Lu, Ll, Lt, Lm, Lo, Mn, Nl, No, Pd, Pc, Po, Sc, Sm, Sk, So, or Co>
-	//              |   \x <hex scalar value> ;
-    // <subsequent>	--> <initial> | <digit 10> | . | + | - | @ | <Unicode Nd, Mc, or Me>
+    //              |   <Unicode Lu, Ll, Lt, Lm, Lo, Mn, Nl, No, Pd, Pc, Po, Sc, Sm, Sk, So, or Co>
+    //              |   \x <hex scalar value> ;
+    // <subsequent> --> <initial> | <digit 10> | . | + | - | @ | <Unicode Nd, Mc, or Me>
     // <letter>     --> a | b | ... | z | A | B | ... | Z
     char next1, next2, next3;
     int valid;
@@ -243,7 +243,7 @@ Value *make_special(valueType t) {
 /* Reads a string from stdin into the buffer.  Whenever a newline occurs,
  * increments the value at line_num.  The first char read should be a double
  * quote, and continues to read chars until another double quote is seen, or
- * until EOF (which throws an error).  Stores the complete string, including
+ * until EOF (which throws an error).  Stores the complete string, excluding
  * both the initial and final double quote, in the buffer.  Returns the length
  * of the string in the buffer, including the quotes but excluding the null
  * terminator. */
@@ -251,13 +251,61 @@ int read_string(char *buf, int *line_num) {
     // Returns the length of the string, excluding the trailing '\0'
     // Returns the number of newline characters in the string
     // Assumes unget() has been called on leading "
-    int i = 1;
-    char char_read = get();
-    buf[0] = char_read;
+    int i = 0;
+    char char_read;
+    get();  // throw away first "
     char_read = get();
     while (char_read != EOF && char_read != '"' && i < BUFSIZE - 1) {
         if (char_read == '\n')
             (*line_num)++;
+        if (char_read == '\\') {
+            char_read = get();
+            switch (char_read) {
+                case 'a':
+                    char_read = 0x07;
+                    break;
+                case 'b':
+                    char_read = 0x08;
+                    break;
+                case 'e':
+                    char_read = 0x1b;
+                    break;
+                case 'f':
+                    char_read = 0x0c;
+                    break;
+                case 'n':
+                    char_read = 0x0a;
+                    break;
+                case 'r':
+                    char_read = 0x0d;
+                    break;
+                case 't':
+                    char_read = 0x09;
+                    break;
+                case 'v':
+                    char_read = 0x0b;
+                    break;
+                case '\\':
+                    char_read = 0x5c;
+                    break;
+                case '\'':
+                    char_read = 0x27;
+                    break;
+                case '"':
+                    char_read = 0x22;
+                    break;
+                case '?':
+                    char_read = 0x3f;
+                    break;
+                default:
+                    if (i < BUFSIZE - 2) {
+                        buf[i] = '\\';
+                        i++;
+                    } else {
+                        char_read = '\\';
+                    }
+            }
+        }
         buf[i] = char_read;
         i++;
         char_read = get();
@@ -266,8 +314,6 @@ int read_string(char *buf, int *line_num) {
         fprintf(stderr, "Syntax error: line %d: unexpected EOF when reading string; expected \"\n", *line_num);
         texit(2);
     }
-    buf[i] = char_read;
-    i++;
     buf[i] = '\0';
     if (i == BUFSIZE - 1) {
         fprintf(stderr, "WARNING: line %d: string length greater than or equal to the length of the buffer:\n", *line_num);
