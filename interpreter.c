@@ -171,6 +171,16 @@ Value *eval_let(Value *args, Frame *frame) {
 Value *eval_let_star(Value *args, Frame *frame) {
     return let_helper(args, frame, 1);
 }
+
+Value *eval_quote(Value *args, Frame *frame) {
+    int argc = length(args);
+    if (argc != 1) {
+        fprintf(stderr, "Evaluation error: built-in function `quote`: expected 1 argument, received %d\n", argc);
+        texit(4);
+    }
+    return car(args);
+}
+
 Value *eval_display(Value *args, Frame *frame) {
     Value *val, *result;
     int i, argc;
@@ -239,6 +249,8 @@ Value *eval(Value *expr, Frame *frame) {
                 result = eval_let(args, frame);
             } else if (strcmp(first->s, "let*") == 0) {
                 result = eval_let_star(args, frame);
+            } else if (strcmp(first->s, "quote") == 0) {
+                result = eval_quote(args, frame);
             } else if (strcmp(first->s, "display") == 0) {
                 result = eval_display(args, frame);
             } else {
