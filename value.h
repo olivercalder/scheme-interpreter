@@ -12,7 +12,10 @@ typedef enum {
     VOID_TYPE, CLOSURE_TYPE,
 
     // Type below is new for primitive portion
-    PRIMITIVE_TYPE
+    PRIMITIVE_TYPE,
+
+    // Type below is new for final portion
+    UNSPECIFIED_TYPE
 } valueType;
 
 struct Value {

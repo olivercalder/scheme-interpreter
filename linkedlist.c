@@ -28,6 +28,13 @@ Value *makeBool(int boolean) {
     return new;
 }
 
+/* Create a new UNSPECIFIED_TYPE value node. */
+Value *makeUnspecified() {
+    Value *new = talloc(sizeof(Value));
+    new->type = UNSPECIFIED_TYPE;
+    return new;
+}
+
 /* Create a new CONS_TYPE value node. */
 Value *cons(Value *newCar, Value *newCdr) {
     Value *new = talloc(sizeof(Value));
@@ -123,6 +130,10 @@ int displayHelper(Value *list, struct format_info *info, FILE *fd) {
             break;
         case CLOSURE_TYPE:
             fprintf(fd, "#<procedure>");
+            rax = 1;
+            break;
+        case UNSPECIFIED_TYPE:
+            fprintf(fd, "#<unspecified>");
             rax = 1;
             break;
         default:

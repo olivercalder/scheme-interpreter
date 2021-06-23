@@ -13,6 +13,9 @@ Value *makeVoid();
 /* Create a new BOOL_TYPE value node with the given boolean value. */
 Value *makeBool(int boolean);
 
+/* Create a new UNSPECIFIED_TYPE value node. */
+Value *makeUnspecified();
+
 /* Create a new CONS_TYPE value node. */
 Value *cons(Value *newCar, Value *newCdr);
 

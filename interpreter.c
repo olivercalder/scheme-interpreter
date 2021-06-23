@@ -54,6 +54,11 @@ Value *eval_begin(Value *args, Frame *frame) {
         result = eval(car(current), frame);
         current = cdr(current);
     }
+    if (current->type != NULL_TYPE) {
+        fprintf(stderr, "Evaluation error: built-in function `begin`: bad form in arguments: ");
+        error_display_tree("begin", args);
+        texit(4);
+    }
     if (result == NULL) {
         result = makeVoid();    // sequence of zero expressions
     }
@@ -98,6 +103,34 @@ Value *eval_if(Value *args, Frame *frame) {
     return result;
 }
 
+Value *eval_cond(Value *args, Frame *frame) {
+    Value *current = args, *cur_clause, *test;
+    if (length(args) == 0)
+        goto COND_ERROR_BAD_FORM;
+    while (current->type == CONS_TYPE) {
+        cur_clause = car(current);
+        if (cur_clause->type != CONS_TYPE)
+            goto COND_ERROR_BAD_FORM;
+        test = car(cur_clause);
+        if (test->type == SYMBOL_TYPE && strcmp(test->s, "else") == 0)
+            return eval_begin(cdr(cur_clause), frame);
+        test = eval(test, frame);
+        if (test->type != BOOL_TYPE)
+            goto COND_ERROR_BAD_FORM;
+        if (test->i == 1)
+            return eval_begin(cdr(cur_clause), frame);
+        current = cdr(current);
+    }
+    if (current->type != NULL_TYPE)
+        goto COND_ERROR_BAD_FORM;
+    return makeVoid();
+COND_ERROR_BAD_FORM:
+    fprintf(stderr, "Evaluation error: built-in function `cond`: bad form in arguments: ");
+    error_display_tree("cond", args);
+    texit(4);
+    return NULL;    // will never return
+}
+
 Value *eval_when(Value *args, Frame *frame) {
     Value *cond, *result = NULL;
     cond = eval(car(args), frame);
@@ -128,14 +161,70 @@ Value *eval_unless(Value *args, Frame *frame) {
     return result;
 }
 
-Value *let_helper(Value *args, Frame *frame, int star) {
-    Value *current, *current_pair, *result, *binding;
-    Frame *new_frame;
-    size_t parent_frame = !star;   // use parent frame for lookup of new bindings instead of current frame
-    char *name = (char *)((parent_frame * (size_t)"let") + (!parent_frame * (size_t)"let*"));
-    if (length(args) < 2) {
-        goto LET_ERROR_BAD_FORM;
+/* Sets the evaluated binding in the given frame */
+void letrec_eval_bindings_helper(Value *list, Frame *frame, int evaluate, int star) {
+    Value *current, *cur_pair, *cur_bind, *binding;
+    Frame *cur_frame;
+    current = list;
+    while (current->type == CONS_TYPE) {
+        cur_pair = car(current);
+        cur_frame = frame;
+        while (cur_frame != NULL) {
+            binding = frame->bindings;
+            while (binding->type == CONS_TYPE) {
+                cur_bind = car(binding);
+                if (strcmp(car(cur_bind)->s, car(cur_pair)->s) == 0) {
+                    cur_bind->c.cdr = evaluate ? eval(car(cdr(cur_pair)), frame) : cdr(cur_pair);
+                    goto FOUND_BINDING;
+                }
+                binding = cdr(binding);
+            }
+            cur_frame = star ? cur_frame->parent : NULL;
+        }
+        // Should be imposible to get here, since matching binding should always be found
+        fprintf(stderr, "Evaluation error: built-in function `%s`: temporary binding for evaluated variable no longer found in frame: %s", star ? "letrec*" : "letrec", car(cur_pair)->s);
+        texit(4);
+FOUND_BINDING:
+        current = cdr(current);
     }
+}
+
+/* Evaluate the bindings which had previously been set to UNSPECIFIED_TYPE by
+ * going through the original list of (var expr) pairs, evaluating expr, and
+ * setting var to the result in the current frame.  If star, then the setting
+ * happens immediately after evaluation; else, the setting happens after all
+ * expressions have been evaulated. */
+void letrec_eval_bindings(Value *pairs, Frame *frame, int star) {
+    Value *current, *cur_pair, *evaluated, *eval_list;
+    if (pairs->type == NULL_TYPE)
+        return;
+    if (star) {
+        letrec_eval_bindings_helper(pairs, frame, 1, star);
+        return;
+    }
+    eval_list = makeNull();
+    current = pairs;
+    while (current->type == CONS_TYPE) {
+        cur_pair = car(current);
+        evaluated = cons(car(cur_pair), eval(car(cdr(cur_pair)), frame));
+        if (cdr(evaluated)->type == UNSPECIFIED_TYPE) {
+            fprintf(stderr, "Evaluation error: built-in function `%s`: unbound variable ", star ? "letrec*" : "letrec");
+            display_to_fd(car(evaluated), stderr);
+            texit(4);
+        }
+        eval_list = cons(evaluated, eval_list);
+        current = cdr(current);
+    }
+    letrec_eval_bindings_helper(eval_list, frame, 0, star);
+}
+
+Value *let_helper(Value *args, Frame *frame, int star, int rec) {
+    Value *current, *current_pair, *result, *binding;
+    Frame *new_frame, *eval_frame;
+    char *name_possibilities[4] = {"let", "letrec", "let*", "letrec*"};
+    char *name = name_possibilities[(!star << 1) | (!rec)];
+    if (length(args) < 2)
+        goto LET_ERROR_BAD_FORM;
     new_frame = talloc(sizeof(Frame));
     new_frame->bindings = makeNull();
     new_frame->parent = frame;
@@ -157,17 +246,21 @@ Value *let_helper(Value *args, Frame *frame, int star) {
         new_frame->bindings = cons(
                 cons(
                     car(current_pair),
-                    eval(
-                        car(cdr(current_pair)),
-                        (Frame *)((parent_frame * (size_t)frame) + (!parent_frame * ((size_t)new_frame))))),
-                        // branchlessly use either parent `frame` or current `new_frame` => fast
+                    rec ? makeUnspecified() : eval(car(cdr(current_pair)), frame)),
                 new_frame->bindings);
+        if (star) {
+            frame = new_frame;
+            new_frame = talloc(sizeof(Frame));
+            new_frame->bindings = makeNull();
+            new_frame->parent = frame;
+        }
         current = cdr(current);
     }
-    if (current->type != NULL_TYPE) {
+    if (current->type != NULL_TYPE)
         goto LET_ERROR_BAD_FORM;
-    }
-    current = cdr(args);    // current is now reused at a different level in the list
+    if (rec)
+        letrec_eval_bindings(car(args), new_frame, star);
+    current = cdr(args);    // current is now reused to evaluate expressions
     while (current->type == CONS_TYPE) {
         result = eval(car(current), new_frame);
         current = cdr(current);
@@ -182,11 +275,19 @@ LET_ERROR_DISPLAY_TREE:
 }
 
 Value *eval_let(Value *args, Frame *frame) {
-    return let_helper(args, frame, 0);
+    return let_helper(args, frame, 0, 0);
 }
 
 Value *eval_let_star(Value *args, Frame *frame) {
-    return let_helper(args, frame, 1);
+    return let_helper(args, frame, 1, 0);
+}
+
+Value *eval_letrec(Value *args, Frame *frame) {
+    return let_helper(args, frame, 0, 1);
+}
+
+Value *eval_letrec_star(Value *args, Frame *frame) {
+    return let_helper(args, frame, 1, 1);
 }
 
 Value *eval_quote(Value *args, Frame *frame) {
@@ -237,7 +338,7 @@ Value *eval_display(Value *args, Frame *frame) {
 }
 
 Value *eval_lambda(Value *args, Frame *frame) {
-    Value *closure, *current, *next;;
+    Value *closure, *current, *next;
     if (length(args) < 2) {
         fprintf(stderr, "Evaluation error: built-in function `lambda`: bad form in arguments: ");
         error_display_tree("lambda", args);
@@ -293,35 +394,129 @@ Value *eval_define(Value *args, Frame *frame) {
     return makeVoid();
 }
 
+Value *eval_set(Value *args, Frame *frame) {
+    Value *binding, *pair, *expr;
+    Frame *current = frame;
+    int argc = length(args);
+    if (argc != 2) {
+        fprintf(stderr, "Evaluation error: built-in function `set!`: expected 2 arguments, received %d\n", argc);
+        texit(4);
+    }
+    expr = car(args);
+    if (expr->type != SYMBOL_TYPE) {
+        fprintf(stderr, "Evaluation error: built-in function `set!`: wrong type argument in position 1 (expected SYMBOL_TYPE): ");
+        display_to_fd(expr, stderr);
+        texit(4);
+    }
+    while (current != NULL) {
+        binding = current->bindings;
+        while (binding->type == CONS_TYPE) {
+            pair = car(binding);
+            if (strcmp(car(pair)->s, expr->s) == 0) {
+                pair->c.cdr = eval(car(cdr(args)), frame);
+                return makeVoid();
+            }
+            binding = cdr(binding);
+        }
+        current = current->parent;
+    }
+    fprintf(stderr, "Evaluation error: built-in function `set!`: unbound variable ");
+    display_to_fd(expr, stderr);
+    texit(4);
+    return NULL;
+}
+
+Value *logic_helper(Value *args, Frame *frame, int end_val) {
+    Value *cond, *current = args;
+    int arg_num = 1;
+    while (current->type == CONS_TYPE) {
+        cond = eval(car(current), frame);
+        if (cond->type != BOOL_TYPE) {
+            fprintf(stderr, "Evaluation error: built-in function `and`: wrong type argument in position %d: ", arg_num);
+            display_to_fd(cond, stderr);
+            texit(4);
+        }
+        if (cond->i == end_val) {
+            return cond;
+        }
+        arg_num++;
+        current = cdr(current);
+    }
+    return makeBool(!end_val);
+}
+
+Value *eval_and(Value *args, Frame *frame) {
+    return logic_helper(args, frame, 0);
+}
+
+Value *eval_or(Value *args, Frame *frame) {
+    return logic_helper(args, frame, 1);
+}
+
 
 ////////////////////////////////////////
 ///////// PRIMITIVE FUNCTIONS //////////
 ////////////////////////////////////////
 
-Value *prim_add(Value *args) {
-    Value *current, *cur_val, *result;
+enum operation {
+    PLUS,
+    MINUS,
+    MULT,
+};
+
+Value *arith_helper(Value *result, Value *args, enum operation op) {
+    Value *cur_val, *current = args;
+    char names[3] = {'+', '-', '/'};
+    char name = names[op];
     int arg_num = 1;
-    result = talloc(sizeof(Value));
-    result->type = INT_TYPE;
-    result->i = 0;
-    current = args;
     while (current->type == CONS_TYPE) {
         cur_val = car(current);
         switch (cur_val->type) {
             case INT_TYPE:
-                if (result->type == INT_TYPE)
-                    result->i += cur_val->i;
-                else
-                    result->d += (double)cur_val->i;
+                if (result->type == INT_TYPE) {
+                    switch (op) {
+                        case PLUS:
+                            result->i += cur_val->i;
+                            break;
+                        case MINUS:
+                            result->i -= cur_val->i;
+                            break;
+                        case MULT:
+                            result->i *= cur_val->i;
+                            break;
+                    }
+                } else if (result->type == DOUBLE_TYPE) {
+                    switch (op) {
+                        case PLUS:
+                            result->d += (double)cur_val->i;
+                            break;
+                        case MINUS:
+                            result->d -= (double)cur_val->i;
+                            break;
+                        case MULT:
+                            result->d *= (double)cur_val->i;
+                            break;
+                    }
+                }
                 break;
             case DOUBLE_TYPE:
                 if (result->type == INT_TYPE)
                     result->d = (double)result->i;
                 result->type = DOUBLE_TYPE;
-                result->d += cur_val->d;
+                switch (op) {
+                    case PLUS:
+                        result->d += cur_val->d;
+                        break;
+                    case MINUS:
+                        result->d -= cur_val->d;
+                        break;
+                    case MULT:
+                        result->d *= cur_val->d;
+                        break;
+                }
                 break;
             default:
-                fprintf(stderr, "Evaluation error: primitive function `+`: wrong type argument in position %d: ", arg_num);
+                fprintf(stderr, "Evaluation error: primitive function `%c`: wrong type argument in position %d: ", name, arg_num);
                 display_to_fd(cur_val, stderr);
                 texit(4);
         }
@@ -329,6 +524,266 @@ Value *prim_add(Value *args) {
         arg_num++;
     }
     return result;
+}
+
+Value *prim_add(Value *args) {
+    Value *result;
+    result = talloc(sizeof(Value));
+    result->type = INT_TYPE;
+    result->i = 0;
+    return arith_helper(result, args, PLUS);
+}
+
+Value *prim_sub(Value *args) {
+    Value *result;
+    int argc = length(args);
+    result = talloc(sizeof(Value));
+    result->type = INT_TYPE;
+    result->i = 0;
+    switch (argc) {
+        case 0:
+            fprintf(stderr, "Evaluation error: primitive function `-`: wrong number of arguments\n");
+            texit(4);
+        case 1:
+            return arith_helper(result, args, MINUS);
+        default:
+            break;
+    }
+    *result = *car(args);
+    return arith_helper(result, cdr(args), MINUS);
+}
+
+Value *prim_mul(Value *args) {
+    Value *result = talloc(sizeof(Value));
+    result->type = INT_TYPE;
+    result->i = 1;
+    return arith_helper(result, args, MULT);
+}
+
+Value *prim_div(Value *args) {
+    Value *result, *divisor;
+    int argc = length(args);
+    if (argc != 2) {
+        fprintf(stderr, "Evaluation error: primitive function `/`: wrong number of arguments\n");
+        texit(4);
+    }
+    result = talloc(sizeof(Value));
+    *result = *car(args);
+    divisor = car(cdr(args));
+    if (result->type != INT_TYPE && result->type != DOUBLE_TYPE) {
+        fprintf(stderr, "Evaluation error: primitive function `/`: wrong type argument in position 1: ");
+        display_to_fd(result, stderr);
+        texit(4);
+    }
+    switch (divisor->type) {
+        case INT_TYPE:
+            if (result->type == INT_TYPE) {
+                if (result->i % divisor->i == 0) {
+                    result->i /= divisor->i;
+                    return result;
+                }
+                result->type = DOUBLE_TYPE;
+                result->d = (double)result->i;
+            }
+            divisor->d = (double)divisor->i;
+        case DOUBLE_TYPE:
+            if (result->type == INT_TYPE)
+                result->d = (double)result->i;
+            result->type = DOUBLE_TYPE;
+            result->d /= divisor->d;
+            break;
+        default:
+            fprintf(stderr, "Evaluation error: primitive function `/`: wrong type argument in position 2: ");
+            display_to_fd(divisor, stderr);
+            texit(4);
+    }
+    return result;
+}
+
+Value *prim_mod(Value *args) {
+    Value *result, *first, *second;
+    if (length(args) != 2) {
+        fprintf(stderr, "Evaluation error: primitive function `modulo`: wrong number of arguments\n");
+        texit(4);
+    }
+    first = car(args);
+    second = car(cdr(args));
+    if (first->type != INT_TYPE) {
+        fprintf(stderr, "Evaluation error: primitive function `modulo`: wrong type argument in position 1: ");
+        display_to_fd(first, stderr);
+        texit(4);
+    }
+    if (second->type != INT_TYPE) {
+        fprintf(stderr, "Evaluation error: primitive function `modulo`: wrong type argument in position 2: ");
+        display_to_fd(second, stderr);
+        texit(4);
+    }
+    result = talloc(sizeof(Value));
+    result->type = INT_TYPE;
+    result->i = first->i % second->i;
+    return result;
+}
+
+enum comparison {
+    EQ,
+    GT,
+    LT,
+    GEQ,
+    LEQ,
+};
+
+Value *compare_helper(Value *args, enum comparison comp) {
+    Value *prev, *current, *cur_val;
+    int arg_num = 2;
+    if (length(args) <= 1)
+        return makeBool(1);
+    prev = car(args);   // should already be evaluated
+    current = cdr(args);
+    while (current->type == CONS_TYPE) {
+        cur_val = car(current);
+        switch (prev->type) {
+            case INT_TYPE:
+                switch (cur_val->type) {
+                    case INT_TYPE:
+                        switch (comp) {
+                            case EQ:
+                                if (prev->i != cur_val->i)
+                                    return makeBool(0);
+                                break;
+                            case GT:
+                                if (prev->i <= cur_val->i)
+                                    return makeBool(0);
+                                break;
+                            case LT:
+                                if (prev->i >= cur_val->i)
+                                    return makeBool(0);
+                                break;
+                            case GEQ:
+                                if (prev->i < cur_val->i)
+                                    return makeBool(0);
+                                break;
+                            case LEQ:
+                                if (prev->i > cur_val->i)
+                                    return makeBool(0);
+                                break;
+                        }
+                        break;
+                    case DOUBLE_TYPE:
+                        switch (comp) {
+                            case EQ:
+                                if (prev->d != cur_val->i)
+                                    return makeBool(0);
+                                break;
+                            case GT:
+                                if (prev->d <= cur_val->i)
+                                    return makeBool(0);
+                                break;
+                            case LT:
+                                if (prev->d >= cur_val->i)
+                                    return makeBool(0);
+                                break;
+                            case GEQ:
+                                if (prev->d < cur_val->i)
+                                    return makeBool(0);
+                                break;
+                            case LEQ:
+                                if (prev->d > cur_val->i)
+                                    return makeBool(0);
+                                break;
+                        }
+                        break;
+                    default:
+                        fprintf(stderr, "Evaluation error: primitive function `=`: wrong type argument in position %d: ", arg_num);
+                        display_to_fd(prev, stderr);
+                        texit(4);
+                }
+                break;
+            case DOUBLE_TYPE:
+                switch (cur_val->type) {
+                    case INT_TYPE:
+                        switch (comp) {
+                            case EQ:
+                                if (prev->i != cur_val->d)
+                                    return makeBool(0);
+                                break;
+                            case GT:
+                                if (prev->i <= cur_val->d)
+                                    return makeBool(0);
+                                break;
+                            case LT:
+                                if (prev->i >= cur_val->d)
+                                    return makeBool(0);
+                                break;
+                            case GEQ:
+                                if (prev->i < cur_val->d)
+                                    return makeBool(0);
+                                break;
+                            case LEQ:
+                                if (prev->i > cur_val->d)
+                                    return makeBool(0);
+                                break;
+                        }
+                        break;
+                    case DOUBLE_TYPE:
+                        switch (comp) {
+                            case EQ:
+                                if (prev->d != cur_val->d)
+                                    return makeBool(0);
+                                break;
+                            case GT:
+                                if (prev->d <= cur_val->d)
+                                    return makeBool(0);
+                                break;
+                            case LT:
+                                if (prev->d >= cur_val->d)
+                                    return makeBool(0);
+                                break;
+                            case GEQ:
+                                if (prev->d < cur_val->d)
+                                    return makeBool(0);
+                                break;
+                            case LEQ:
+                                if (prev->d > cur_val->d)
+                                    return makeBool(0);
+                                break;
+                        }
+                        break;
+                    default:
+                        fprintf(stderr, "Evaluation error: primitive function `=`: wrong type argument in position %d: ", arg_num);
+                        display_to_fd(prev, stderr);
+                        texit(4);
+                }
+                break;
+            default:
+                fprintf(stderr, "Evaluation error: primitive function `=`: wrong type argument in position 1: ");
+                display_to_fd(prev, stderr);
+                texit(4);
+        }
+        arg_num++;
+        prev = current;
+        current = cdr(current);
+    }
+    return makeBool(1);
+}
+
+Value *prim_eqnum(Value *args) {
+    return compare_helper(args, EQ);
+}
+
+Value *prim_gt(Value *args) {
+    return compare_helper(args, GT);
+}
+
+Value *prim_lt(Value *args) {
+    return compare_helper(args, LT);
+}
+
+Value *prim_geq(Value *args) {
+    return compare_helper(args, GEQ);
+}
+
+Value *prim_leq(Value *args) {
+    return compare_helper(args, LEQ);
 }
 
 Value *prim_null(Value *args) {
@@ -461,7 +916,7 @@ Value *prim_equal(Value *args) {
 
 
 ////////////////////////////////////////
-//////// EVAULUATION FUNCTIONS /////////
+///////// EVALUATION FUNCTIONS /////////
 ////////////////////////////////////////
 
 Value *apply(Value *function, Value *args) {
@@ -572,12 +1027,16 @@ Value *eval(Value *expr, Frame *frame) {
             // Here, first was SYMBOL_TYPE and was not found by lookup_symbol
             switch (first->s[0]) {
                 case 'a':
+                    if (strcmp(first->s, "and") == 0)
+                        return eval_and(args, frame);
                     break;
                 case 'b':
                     if (strcmp(first->s, "begin") == 0)
                         return eval_begin(args, frame);
                     break;
                 case 'c':
+                    if (strcmp(first->s, "cond") == 0)
+                        return eval_cond(args, frame);
                     break;
                 case 'd':
                     if (strcmp(first->s, "display") == 0)
@@ -606,6 +1065,10 @@ Value *eval(Value *expr, Frame *frame) {
                         return eval_let(args, frame);
                     else if (strcmp(first->s, "let*") == 0)
                         return eval_let_star(args, frame);
+                    else if (strcmp(first->s, "letrec") == 0)
+                        return eval_letrec(args, frame);
+                    else if (strcmp(first->s, "letrec*") == 0)
+                        return eval_letrec_star(args, frame);
                     else if (strcmp(first->s, "lambda") == 0)
                         return eval_lambda(args, frame);
                     break;
@@ -616,6 +1079,8 @@ Value *eval(Value *expr, Frame *frame) {
                         return eval_not(args, frame);
                     break;
                 case 'o':
+                    if (strcmp(first->s, "or") == 0)
+                        return eval_or(args, frame);
                     break;
                 case 'p':
                     break;
@@ -626,6 +1091,8 @@ Value *eval(Value *expr, Frame *frame) {
                 case 'r':
                     break;
                 case 's':
+                    if (strcmp(first->s, "set!") == 0)
+                        return eval_set(args, frame);
                     break;
                 case 't':
                     break;
@@ -660,6 +1127,7 @@ Value *eval(Value *expr, Frame *frame) {
             return result;
         case CLOSURE_TYPE:
         case PRIMITIVE_TYPE:
+        case UNSPECIFIED_TYPE:
             return expr;
         default:
             fprintf(stderr, "Evaluation error: unexpected value of type %d\n", expr->type);
@@ -675,11 +1143,20 @@ void interpret(Value *tree) {
     null_value.type = NULL_TYPE;
     frame.bindings = &null_value;
     frame.parent = NULL;
-    bind_primitive("+", prim_add, &frame);
-    bind_primitive("null?", prim_null, &frame);
     bind_primitive("car", prim_car, &frame);
     bind_primitive("cdr", prim_cdr, &frame);
     bind_primitive("cons", prim_cons, &frame);
+    bind_primitive("+", prim_add, &frame);
+    bind_primitive("-", prim_sub, &frame);
+    bind_primitive("*", prim_mul, &frame);
+    bind_primitive("/", prim_div, &frame);
+    bind_primitive("modulo", prim_mod, &frame);
+    bind_primitive("=", prim_eqnum, &frame);
+    bind_primitive(">", prim_gt, &frame);
+    bind_primitive("<", prim_lt, &frame);
+    bind_primitive(">=", prim_geq, &frame);
+    bind_primitive("<=", prim_leq, &frame);
+    bind_primitive("null?", prim_null, &frame);
     bind_primitive("list", prim_list, &frame);
     bind_primitive("append", prim_append, &frame);
     bind_primitive("equal?", prim_equal, &frame);
