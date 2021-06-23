@@ -264,7 +264,7 @@ int read_string(char *buf, int *line_num) {
     }
     if (char_read == EOF) {
         fprintf(stderr, "Syntax error: line %d: unexpected EOF when reading string; expected \"\n", *line_num);
-        texit(1);
+        texit(2);
     }
     buf[i] = char_read;
     i++;
@@ -366,7 +366,7 @@ Value *tokenize() {
                 } else {
                     // there are valid options we have not handled yet
                     fprintf(stderr, "Syntax error: line %d: handling for special token %s not yet implemented\n", line_num, buf);
-                    texit(1);
+                    texit(2);
                 }
                 break;
             default:
@@ -382,7 +382,7 @@ Value *tokenize() {
                         list = cons(make_double(buf), list);
                     } else {
                         fprintf(stderr, "Syntax error: line %d: invalid symbol %s: Symbols may not begin with + or - unless the complete symbol is + or -\n", line_num, buf);
-                        texit(1);
+                        texit(2);
                     }
                 } else if (buf[0] == '.') {
                     if (token_len == 1) {
@@ -393,7 +393,7 @@ Value *tokenize() {
                         list = cons(make_double(buf), list);
                     } else {
                         fprintf(stderr, "Syntax error: line %d: invalid symbol %s: Symbols may not begin with . unless the complete symbol is . or ...\n", line_num, buf);
-                        texit(1);
+                        texit(2);
                     }
                 } else if (is_digit(buf[0])) {
                     if (is_integer(buf)) {
@@ -402,13 +402,13 @@ Value *tokenize() {
                         list = cons(make_double(buf), list);
                     } else {
                         fprintf(stderr, "Syntax error: line %d: invalid symbol %s: Symbols may not begin with a number\n", line_num, buf);
-                        texit(1);
+                        texit(2);
                     }
                 } else if (is_symbol(buf)) {
                     list = cons(make_symbol(buf), list);
                 } else {
                     fprintf(stderr, "Syntax error: line %d: invalid symbol %s: Symbol contains invalid character\n", line_num, buf);
-                    texit(1);
+                    texit(2);
                 }
         }
         char_read = get();

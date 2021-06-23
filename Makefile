@@ -1,8 +1,8 @@
 CC = cc
 CFLAGS = -g -O3
 
-SRCS = linkedlist.c main.c talloc.c tokenizer.c
-HDRS = linkedlist.h value.h talloc.h tokenizer.h
+SRCS = linkedlist.c main.c talloc.c tokenizer.c parser.c
+HDRS = linkedlist.h value.h talloc.h tokenizer.h parser.h
 OBJS = $(SRCS:.c=.o)
 
 .PHONY: interpreter
