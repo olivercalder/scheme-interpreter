@@ -5,6 +5,7 @@
 #include "linkedlist.h"
 #include "talloc.h"
 
+
 /* Create a new NULL_TYPE value node. */
 Value *makeNull() {
     Value *new = talloc(sizeof(Value));
@@ -44,6 +45,7 @@ struct format_info {
  * a leading space (excluding NULL_TYPE).  Otherwise returns 0.  */
 int displayHelper(Value *list, struct format_info *info, FILE *fd) {
     struct format_info car_info, cdr_info;
+    int rax = 0;
     if (info->leading_space && list->type != NULL_TYPE)
         fprintf(fd, " ");
     if (info->first_in_list) {
@@ -68,15 +70,18 @@ int displayHelper(Value *list, struct format_info *info, FILE *fd) {
     switch(list->type) {
         case INT_TYPE:
             fprintf(fd, "%d", list->i);
-            return 1;
+            rax = 1;
+            break;
         case DOUBLE_TYPE:
             fprintf(fd, "%lf", list->d);
-            return 1;
+            rax = 1;
+            break;
         case STR_TYPE:
             fprintf(fd, "\"");
             fprintf(fd, "%s", list->s);
             fprintf(fd, "\"");
-            return 1;
+            rax = 1;
+            break;
         case CONS_TYPE:
             car_info.first_in_list = 1;
             car_info.leading_space = 0;
@@ -84,37 +89,56 @@ int displayHelper(Value *list, struct format_info *info, FILE *fd) {
             cdr_info.first_in_list = 0;
             cdr_info.leading_space = displayHelper(list->c.car, &car_info, fd);
             cdr_info.is_list = 1;
-            return displayHelper(list->c.cdr, &cdr_info, fd);
+            rax = displayHelper(list->c.cdr, &cdr_info, fd);
+            break;
         case NULL_TYPE:
             fprintf(fd, ")");
-            return 1;
+            rax = 1;
+            break;
         case PTR_TYPE:
             fprintf(fd, "%p", list->p);
-            return 1;
+            rax = 1;
+            break;
         case BOOL_TYPE:
             if (list->i == 0)
                 fprintf(fd, "#f");
             else
                 fprintf(fd, "#t");
-            return 1;
+            rax = 1;
+            break;
         case SYMBOL_TYPE:
             fprintf(fd, "%s", list->s);
-            return 1;
+            rax = 1;
+            break;
         case DOT_TYPE:
             fprintf(fd, ".");
-            return 1;
+            rax = 1;
+            break;
         case SINGLEQUOTE_TYPE:
             fprintf(fd, "'");
-            return 0;
+            rax = 0;
+            break;
         case VOID_TYPE:
-            return 0;
+            rax = 0;
+            break;
         case CLOSURE_TYPE:
             fprintf(fd, "#<procedure>");
-            return 1;
+            rax = 1;
+            break;
         default:
             fprintf(stderr, "WARNING: Value type %d should not be printable\n", list->type);
     }
-    return 0;
+    if (info->is_list) {
+        switch (list->type) {
+            case CONS_TYPE:
+            case NULL_TYPE:
+                break;
+            default:
+                fprintf(fd, ")");
+                return 1;
+        }
+    }
+    return rax;
 }
 
 /* Display the contents of the linked list to the given file descriptor in some

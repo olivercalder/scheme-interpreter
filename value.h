@@ -9,7 +9,10 @@ typedef enum {
     OPENBRACKET_TYPE, CLOSEBRACKET_TYPE, DOT_TYPE, SINGLEQUOTE_TYPE,
 
     // Types below are new for define/lambda portion
-    VOID_TYPE, CLOSURE_TYPE
+    VOID_TYPE, CLOSURE_TYPE,
+
+    // Type below is new for primitive portion
+    PRIMITIVE_TYPE
 } valueType;
 
 struct Value {
@@ -33,6 +36,10 @@ struct Value {
             struct Value *functionCode;
             struct Frame *frame;
         } cl;
+
+        // A primitive style function; just a pointer to it, with the right
+        // signature (pf = primitive function)
+        struct Value *(*pf)(struct Value *);
     };
 };
 
