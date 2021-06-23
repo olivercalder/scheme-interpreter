@@ -107,7 +107,9 @@ int displayHelper(Value *list, struct format_info *info, FILE *fd) {
             fprintf(fd, "'");
             return 0;
         case VOID_TYPE:
-            fprintf(fd, "#<void>");
+            return 0;
+        case CLOSURE_TYPE:
+            fprintf(fd, "#<procedure>");
             return 1;
         default:
             fprintf(stderr, "WARNING: Value type %d should not be printable\n", list->type);

@@ -7,7 +7,9 @@ typedef enum {
 
     // Types below are only for bonus work
     OPENBRACKET_TYPE, CLOSEBRACKET_TYPE, DOT_TYPE, SINGLEQUOTE_TYPE,
-    VOID_TYPE
+
+    // Types below are new for define/lambda portion
+    VOID_TYPE, CLOSURE_TYPE
 } valueType;
 
 struct Value {
@@ -21,6 +23,16 @@ struct Value {
             struct Value *car;
             struct Value *cdr;
         } c;
+        // For purposes of this project a closure is just another type of value,
+        // containing everything needed to execute a user-defined function: (1)
+        // a list of formal parameter names; (2) a pointer to the function body;
+        // (3) a pointer to the environment frame in which the function was
+        // created.
+        struct Closure {
+            struct Value *paramNames;
+            struct Value *functionCode;
+            struct Frame *frame;
+        } cl;
     };
 };
 
