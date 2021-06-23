@@ -21,7 +21,7 @@ Value *cons(Value *newCar, Value *newCdr) {
     return new;
 }
 
-// Print values in a cons list, assuming the leading ( is already printed.
+// Print values in a cons list
 void displayHelper(Value *list, int first) {
     if (first) {
         switch (list->type) {
@@ -54,6 +54,15 @@ void displayHelper(Value *list, int first) {
             break;
         case PTR_TYPE:
             printf("%p ", list->p);
+            break;
+        case BOOL_TYPE:
+            if (list->i == 0)
+                printf("#f ");
+            else
+                printf("#t ");
+            break;
+        default:
+            fprintf(stderr, "WARNING: Value type %d should not be printable\n", list->type);
     }
 }
 
